@@ -4,7 +4,7 @@ Welcome to the CUDA 101 repository! This project is dedicated to documenting my 
 
 ## Repository Structure
 
-- **src/**: Contains the source code for various CUDA programs and exercises. Each subfolder within `src` has its own README file with specific details.
+- **src/**: Contains the source code for various CUDA programs and exercises. 
 
 ## Getting Started
 
@@ -27,6 +27,6 @@ This project is licensed under the MIT License.
 
 ## Contact
 
-For any questions or inquiries, please reach out to me at [anmol.rastogi2001@gmail.com].
+For any questions or inquiries, please reach out to me at [Anmol Rastogi](mailto:anmol.rastogi2001@gmail.com).
 
 Happy coding!
