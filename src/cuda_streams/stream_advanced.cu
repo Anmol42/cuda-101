@@ -57,6 +57,7 @@ int main()
     // Create streams with different priorities
     int leastPriority, greatestPriority;
     CHECK_CUDA_ERROR(cudaDeviceGetStreamPriorityRange(&leastPriority, &greatestPriority));
+    printf("Least priority: %d Greatest priority: %d\n", leastPriority, greatestPriority);
     CHECK_CUDA_ERROR(cudaStreamCreateWithPriority(&stream1, cudaStreamNonBlocking, leastPriority));
     CHECK_CUDA_ERROR(cudaStreamCreateWithPriority(&stream2, cudaStreamNonBlocking, greatestPriority));
 
