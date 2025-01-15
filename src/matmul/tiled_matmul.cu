@@ -117,15 +117,5 @@ int main()
 
     // Print the result
     printf("Time taken: %f seconds\n", time_taken);
-
-
-    // printf("%f\n", ceil(3/16));
-    // printf("Result matrix C:\n");
-    // for (int i = 0; i < m; i++) {
-    //     for (int j = 0; j < n; j++) {
-    //         printf("%f ", C[i*n+j]);
-    //     }
-    //     printf("\n");
-    // }
     return  EXIT_SUCCESS;
 }
