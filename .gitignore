@@ -1,0 +1,80 @@
+# Compiled object files
+*.o
+*.obj
+
+# Compiled dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled static libraries
+*.lib
+*.a
+
+# CUDA binaries
+*.ptx
+*.cubin
+
+# CUDA intermediate files
+*.cudafe*
+*.fatbin*
+*.cubin.c
+
+# CUDA profiling files
+*.nvvp
+*.nsys-rep
+
+# CUDA debug files
+*.nvdebug
+*.nvprof
+
+# CUDA generated files
+*.cudafe1.cpp
+*.cudafe1.stub.c
+
+# CUDA temporary files
+*.tmp
+
+# IDE specific files
+.vscode/
+.idea/
+*.code-workspace
+
+# Python virtual environment
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# General
+*.log
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.svg
+
+# Zip files
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+
+# Common formats used to save matrices for C/C++/CUDA C
+*.mtx
+*.csv
+*.tsv
+
+# Specific files to be excluded
+1
+2
+cuda_property
+dump.txt
