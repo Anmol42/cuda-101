@@ -49,7 +49,8 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
 
         for(int j=0;j<TILE_WIDTH;j++)
         {
-            value += Ads[ty][j]*Bds[j][tx];
+            value += __fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
+            __threadfence_block();
         }
         __syncthreads();
     }
@@ -61,6 +62,10 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
 
 void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
 {
+    cudaEvent_t start, stop;
+    float milliseconds;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
     const int TILE_WIDTH = 64;
     // A is m x k, B is k x n, C is m x n
     int size_A = m*k*sizeof(float);
@@ -68,18 +73,49 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     int size_C = m*n*sizeof(float);
 
     float *d_A, *d_B, *d_C;
+    cudaEventRecord(start);
     cudaMalloc((void**)&d_A, size_A);
     cudaMalloc((void**)&d_B, size_B);
     cudaMalloc((void**)&d_C, size_C);
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Time taken for memory allocation on GPU: %f ms\n", milliseconds);
 
+    cudaEventRecord(start);
     cudaMemcpy(d_A, h_A, size_A, HostToDevice);
     cudaMemcpy(d_B, h_B, size_B, HostToDevice);
+    cudaEventRecord(stop);
+
+    // Memcpy is a sync function so calling a synchronise is not needed
+    cudaEventSynchronize(stop);
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Time taken for copying host data on GPU: %f ms\n", milliseconds);
+
     // cudaMemcpy(d_C, h_C, size_C, cudaMemcpyHostToDevice);
 
     // call kernel, if direct integer division is used, it will be 0 and hence ceil will return 0 as truncation occured first.
     dim3 dimGrid(ceil(n/float(TILE_WIDTH)), ceil(m/float(TILE_WIDTH)), 1);
     dim3 dimBlock(TILE_WIDTH,TILE_WIDTH,1);
-    tiledMatMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+
+    int num_iterations = 10;
+    cudaDeviceSynchronize();
+    cudaEventRecord(start);
+    for(int i=0;i<num_iterations;i++)
+    {
+        tiledMatMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+        // cudaDeviceSynchronize();
+    }
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Tiled MatMul kernel execution time: %f ms\n", milliseconds);
+    float total_operations = (float) m*n*k*2;
+    float flops = total_operations / (milliseconds / 1000.0f);  // Total FLOPS
+    float gflops = flops / 1e9;  // Convert to GFLOPS
+
+    printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
 
     cudaMemcpy(h_C, d_C, size_C, DeviceToHost);
 
@@ -93,14 +129,30 @@ void init_matrix(float* mat, int rows, int cols)
 {
     for(int i=0; i<rows*cols; i++)
     {
-        mat[i] = rand() % 10;
+        mat[i] = -1000.0f + (static_cast<float>(rand()) / RAND_MAX) * 2000.0f;
     }
 }
 
 
 int main()
 {
-    int m=10240,k=102400,n=10240;
+    int device;
+    cudaDeviceProp prop;
+    cudaGetDevice(&device);
+    cudaGetDeviceProperties(&prop, device);
+    
+    int cores_per_sm = prop.multiProcessorCount * 128; //_ConvertSMVer2Cores(prop.major, prop.minor); we don't have the necessary helper header so hardcoding
+    float clock_rate_ghz = prop.clockRate / 1e6f;  // Convert from kHz to GHz
+    float theoretical_gflops = cores_per_sm * clock_rate_ghz * 2.0f;
+
+    float mem_clock_ghz = prop.memoryClockRate / 1e6f;  // Convert kHz to GHz
+    float mem_bus_width_bytes = prop.memoryBusWidth / 8.0f;  // Convert bits to bytes
+    float theoretical_bw = mem_clock_ghz * mem_bus_width_bytes * 2;  // Factor 2 for DDR
+
+    printf("Theoretical Peak GFLOPS: %.2f GFLOPS\n", theoretical_gflops);
+    printf("Theoretical Memory Bandwidth: %.2f GB/s\n", theoretical_bw);
+
+    int m=10000,k=10000,n=10000;
     float *A,*B,*C;
     A = (float*)malloc(m * k * sizeof(float));
     B = (float*)malloc(k * n * sizeof(float));
@@ -109,13 +161,10 @@ int main()
     init_matrix(A, m, k);
     init_matrix(B, k, n);
 
-    clock_t start_time, end_time;
-    start_time = clock();
     matMul(A, B, C, m, k, n);
-    end_time = clock();
-    double time_taken = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+    // double time_taken = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
 
     // Print the result
-    printf("Time taken: %f seconds\n", time_taken);
+    // printf("Time taken: %f seconds\n", time_taken);
     return  EXIT_SUCCESS;
 }

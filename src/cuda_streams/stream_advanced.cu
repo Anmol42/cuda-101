@@ -73,6 +73,7 @@ int main()
 
     // Make stream2 wait for event
     CHECK_CUDA_ERROR(cudaStreamWaitEvent(stream2, event, 0));
+    CHECK_CUDA_ERROR(cudaStreamAddCallback(stream1, myStreamCallback, NULL, 0));    // called after stream1 finishes executing
 
     // Execute kernel in stream2
     kernel2<<<(N + 255) / 256, 256, 0, stream2>>>(d_data, N);
