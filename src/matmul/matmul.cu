@@ -50,6 +50,10 @@ __global__ void matMulKernel(float* A, float* B, float* C, int m, int k, int n)
 
 void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
 {
+    cudaEvent_t start, stop;
+    float milliseconds;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
     // A is m x k, B is k x n, C is m x n
     int size_A = m*k*sizeof(float);
     int size_B = k*n*sizeof(float);
@@ -67,7 +71,16 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     // call kernel, if direct integer division is used, it will be 0 and hence ceil will return 0 as truncation occured first.
     dim3 dimGrid(ceil(n/16.0), ceil(m/16.0), 1);
     dim3 dimBlock(16,16,1);
+    cudaDeviceSynchronize();
+    cudaEventRecord(start);
+
     matMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("MatMul kernel execution time: %f ms\n", milliseconds);
 
     cudaMemcpy(h_C, d_C, size_C, DeviceToHost);
 

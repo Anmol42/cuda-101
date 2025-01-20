@@ -27,11 +27,6 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-
-    // These indices need TILE_WIDTH to be equal to blockDim.x/y for it to work (which is a mandatory condition almost always)
-    // int Row = by * TILE_WIDTH + ty;
-    // int Col = bx * TILE_WIDTH + tx;
-
     float value = 0;
 
     //load tile into shared memory
@@ -92,30 +87,31 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     cudaEventElapsedTime(&milliseconds, start, stop);
     printf("Time taken for copying host data on GPU: %f ms\n", milliseconds);
 
-    // cudaMemcpy(d_C, h_C, size_C, cudaMemcpyHostToDevice);
-
     // call kernel, if direct integer division is used, it will be 0 and hence ceil will return 0 as truncation occured first.
-    dim3 dimGrid(ceil(n/float(TILE_WIDTH)), ceil(m/float(TILE_WIDTH)), 1);
+    dim3 dimGrid(ceil(n/(float)(TILE_WIDTH)), ceil(m/(float)(TILE_WIDTH)), 1);
     dim3 dimBlock(TILE_WIDTH,TILE_WIDTH,1);
 
-    int num_iterations = 10;
     cudaDeviceSynchronize();
     cudaEventRecord(start);
-    for(int i=0;i<num_iterations;i++)
-    {
-        tiledMatMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
-        // cudaDeviceSynchronize();
-    }
+   
+    tiledMatMulKernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+    
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     
     cudaEventElapsedTime(&milliseconds, start, stop);
     printf("Tiled MatMul kernel execution time: %f ms\n", milliseconds);
-    float total_operations = (float) m*n*k*2;
+    double M = m, N = n, K = k;
+    float total_operations = 2*M*N*K;
     float flops = total_operations / (milliseconds / 1000.0f);  // Total FLOPS
     float gflops = flops / 1e9;  // Convert to GFLOPS
 
     printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
+
+    double bytes_transferred = (2*M*N*K/(float)(TILE_WIDTH) + M*N)*sizeof(float);
+    double achieved_bw = (bytes_transferred / (milliseconds / 1000.0f)) / 1e9;
+
+    printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred);
 
     cudaMemcpy(h_C, d_C, size_C, DeviceToHost);
 
@@ -136,6 +132,7 @@ void init_matrix(float* mat, int rows, int cols)
 
 int main()
 {
+    srand(time(NULL));
     int device;
     cudaDeviceProp prop;
     cudaGetDevice(&device);
@@ -152,7 +149,7 @@ int main()
     printf("Theoretical Peak GFLOPS: %.2f GFLOPS\n", theoretical_gflops);
     printf("Theoretical Memory Bandwidth: %.2f GB/s\n", theoretical_bw);
 
-    int m=10000,k=10000,n=10000;
+    int m=1024,k=1024,n=1024;
     float *A,*B,*C;
     A = (float*)malloc(m * k * sizeof(float));
     B = (float*)malloc(k * n * sizeof(float));
@@ -162,9 +159,7 @@ int main()
     init_matrix(B, k, n);
 
     matMul(A, B, C, m, k, n);
-    // double time_taken = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
 
-    // Print the result
-    // printf("Time taken: %f seconds\n", time_taken);
+
     return  EXIT_SUCCESS;
 }
