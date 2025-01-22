@@ -3,6 +3,41 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 
+
+bool checkSharedMemoryLimits(int tileWidth) {
+    cudaDeviceProp deviceProp;
+    cudaError_t error = cudaGetDeviceProperties(&deviceProp, 0);
+    
+    if (error != cudaSuccess) {
+        printf("Error getting device properties: %s\n", cudaGetErrorString(error));
+        return false;
+    }
+
+    // Calculate required shared memory for one block
+    size_t requiredSharedMemPerBlock = 2 * tileWidth * tileWidth * sizeof(float);
+    
+    printf("Device: %s\n", deviceProp.name);
+    printf("Shared memory per block: %zu bytes\n", deviceProp.sharedMemPerBlock);
+    printf("Required shared memory: %zu bytes\n", requiredSharedMemPerBlock);
+    
+    if (requiredSharedMemPerBlock > deviceProp.sharedMemPerBlock) {
+        printf("Error: Tile size too large! Would require %zu bytes of shared memory but only %zu available\n",
+               requiredSharedMemPerBlock, deviceProp.sharedMemPerBlock);
+        return false;
+    }
+    
+    // Check maximum threads per block
+    int threadsPerBlock = tileWidth * tileWidth;
+    if (threadsPerBlock > deviceProp.maxThreadsPerBlock) {
+        printf("Error: Tile size requires %d threads but device maximum is %d\n",
+               threadsPerBlock, deviceProp.maxThreadsPerBlock);
+        return false;
+    }
+    
+    return true;
+}
+
+
 int main()
 {
     int dev_count;
@@ -33,6 +68,7 @@ int main()
         printf("  Unified Addressing: %s\n", prop.unifiedAddressing ? "Yes" : "No");
         printf("  Managed Memory: %s\n", prop.managedMemory ? "Yes" : "No");
         printf("\n");
+        checkSharedMemoryLimits(32);
     }
     return EXIT_SUCCESS;
 }

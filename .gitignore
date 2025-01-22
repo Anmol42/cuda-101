@@ -73,8 +73,12 @@ Thumbs.db
 *.csv
 *.tsv
 
+# Standard text files
+*.txt
+
 # Specific files to be excluded
 1
 2
 cuda_property
 dump.txt
+a.out

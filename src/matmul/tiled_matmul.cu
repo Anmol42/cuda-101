@@ -15,7 +15,7 @@
 //Tiled matrix multiplication
 __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int k, int n)
 {
-    const int TILE_WIDTH = 64;
+    const int TILE_WIDTH = 16;
     // TILE_WIDTH must be known at compile time for this to work
     __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
     __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
@@ -27,7 +27,7 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-    float value = 0;
+    double value = 0;
 
     //load tile into shared memory
     for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
@@ -44,13 +44,14 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
 
         for(int j=0;j<TILE_WIDTH;j++)
         {
-            value += __fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
-            __threadfence_block();
+            value += static_cast<double>(Ads[ty][j]) * static_cast<double>(Bds[j][tx]); //__fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
         }
         __syncthreads();
     }
     if(row<m && col<n)
+    {
         result[row*n+col] = value;
+    }
 
 }
 
@@ -61,7 +62,7 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     float milliseconds;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    const int TILE_WIDTH = 64;
+    const int TILE_WIDTH = 16;
     // A is m x k, B is k x n, C is m x n
     int size_A = m*k*sizeof(float);
     int size_B = k*n*sizeof(float);
@@ -130,6 +131,85 @@ void init_matrix(float* mat, int rows, int cols)
 }
 
 
+float* read_matrix_from_csv(const char* filename, int *rows, int *cols)
+{
+    FILE* file = fopen(filename, "r");
+    if(file == NULL)
+    {
+        printf("Error: Unable to open file %s\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the number of rows and columns from the first line
+    if (fscanf(file, "%d,%d\n", rows, cols) != 2) {
+        fprintf(stderr, "Error reading matrix dimensions\n");
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
+
+    float* mat = (float*)malloc((*rows)*(*cols)*sizeof(float));
+    for(int i=0; i<*rows; i++)
+    {
+        for(int j=0; j<*cols; j++)
+        {
+            if(j == *cols-1)
+                fscanf(file, "%f\n", &mat[i*(*cols)+j]);
+            else
+                fscanf(file, "%f,", &mat[i*(*cols)+j]);
+        }
+    }
+
+    fclose(file);
+    return mat;
+}
+
+
+void write_matrix_to_csv(float* matrix, int rows, int cols, const char* filename)
+{
+    FILE* file = fopen(filename, "w");
+    if (file == NULL) {
+        perror("Error opening file for writing");
+        return;
+    }
+
+    // Write rows and columns
+    fprintf(file, "%d,%d\n", rows, cols);
+
+    // Write the matrix values
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            fprintf(file, "%lf", matrix[i*cols+j]);
+            if (j < cols - 1) {
+                fprintf(file, ","); // Add comma between values in a row
+            }
+        }
+        fprintf(file, "\n"); // Newline after each row
+    }
+
+    fclose(file);
+    printf("Matrix written to %s successfully.\n", filename);
+}
+
+
+void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
+{
+    int cnt = 0;
+    float err = 1e-2;
+    for(int i=0;i<rows;i++)
+    {
+        for(int j=0;j<cols;j++)
+        {
+            if(abs((result[i*cols+j] - expected_result[i*cols+j])/expected_result[i*cols+j]) > err)
+            {
+                cnt++;
+                // printf("Error at index (%d, %d): %f != %f\n", i, j, result[i*cols+j], expected_result[i*cols+j]);
+            }
+        }
+    }
+    printf("Number of elements that differ by relative error more than %f: %d\n", err, cnt);
+}
+
+
 int main()
 {
     srand(time(NULL));
@@ -149,17 +229,18 @@ int main()
     printf("Theoretical Peak GFLOPS: %.2f GFLOPS\n", theoretical_gflops);
     printf("Theoretical Memory Bandwidth: %.2f GB/s\n", theoretical_bw);
 
-    int m=1024,k=1024,n=1024;
-    float *A,*B,*C;
-    A = (float*)malloc(m * k * sizeof(float));
-    B = (float*)malloc(k * n * sizeof(float));
+    int m,k,n;
+    float *A,*B,*C,*actual_result;
+    A = read_matrix_from_csv("cuda-101/src/matmul/input_A.csv", &m, &k);
+    B = read_matrix_from_csv("cuda-101/src/matmul/input_B.csv", &k, &n);
+    actual_result = read_matrix_from_csv("cuda-101/src/matmul/output.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
 
-    init_matrix(A, m, k);
-    init_matrix(B, k, n);
+    // init_matrix(A, m, k);
+    // init_matrix(B, k, n);
 
     matMul(A, B, C, m, k, n);
-
+    matMulAccuracy(C, actual_result, m, n); // transfer this output to a temporray file for better analysis
 
     return  EXIT_SUCCESS;
 }
