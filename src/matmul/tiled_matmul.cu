@@ -131,7 +131,7 @@ void init_matrix(float* mat, int rows, int cols)
 }
 
 
-float* read_matrix_from_csv(const char* filename, int *rows, int *cols)
+float* read_matrix_from_csv(const char* filename, int *rows, int *cols, char delimiter=',')
 {
     FILE* file = fopen(filename, "r");
     if(file == NULL)
@@ -140,27 +140,81 @@ float* read_matrix_from_csv(const char* filename, int *rows, int *cols)
         exit(EXIT_FAILURE);
     }
 
-    // Read the number of rows and columns from the first line
-    if (fscanf(file, "%d,%d\n", rows, cols) != 2) {
-        fprintf(stderr, "Error reading matrix dimensions\n");
+    size_t capacity = 1024;  // Initial capacity for the buffer
+    float* buffer = (float*)malloc(capacity * sizeof(float));
+    if (!buffer) 
+    {
+        fprintf(stderr, "Error: Memory allocation failed\n");
         fclose(file);
         exit(EXIT_FAILURE);
     }
 
-    float* mat = (float*)malloc((*rows)*(*cols)*sizeof(float));
-    for(int i=0; i<*rows; i++)
+    size_t line_capacity = 1024; // Initial line buffer capacity
+    char* line = (char*)malloc(line_capacity * sizeof(char));
+    if (!line) 
     {
-        for(int j=0; j<*cols; j++)
+        fprintf(stderr, "Error: Memory allocation for line buffer failed\n");
+        free(buffer);
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
+
+    *rows = 0;
+    *cols = 0;
+    int current_cols = 0;
+
+    while (getline(&line, &line_capacity, file) != -1)  // Dynamically read each line
+    {
+        current_cols = 0;
+
+        // Parse the line based on the delimiter
+        char* token = strtok(line, &delimiter);
+        while (token) 
         {
-            if(j == *cols-1)
-                fscanf(file, "%f\n", &mat[i*(*cols)+j]);
-            else
-                fscanf(file, "%f,", &mat[i*(*cols)+j]);
+            if (*rows == 0) (*cols)++; // Count columns based on the first row
+
+            if ((*rows) * (*cols) + current_cols >= capacity) 
+            {
+                capacity *= 2;
+                buffer = (float*)realloc(buffer, capacity * sizeof(float)); // realloc copies the data for you
+                if (!buffer) 
+                {
+                    fprintf(stderr, "Error: Memory reallocation failed\n");
+                    free(line);
+                    fclose(file);
+                    exit(EXIT_FAILURE);
+                }
+            }
+
+            buffer[(*rows) * (*cols) + current_cols] = strtof(token, NULL);
+            current_cols++;
+            token = strtok(NULL, &delimiter);
         }
+
+        if (*rows > 0 && current_cols != *cols) 
+        {
+            fprintf(stderr, "Error: Inconsistent number of columns in row %d\n", *rows + 1);
+            free(buffer);
+            free(line);
+            fclose(file);
+            exit(EXIT_FAILURE);
+        }
+
+        (*rows)++;
     }
 
     fclose(file);
-    return mat;
+    free(line);
+
+    // Resize buffer to the exact size
+    buffer = (float*)realloc(buffer, (*rows) * (*cols) * sizeof(float));
+    if (!buffer) 
+    {
+        fprintf(stderr, "Error: Memory reallocation failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    return buffer;
 }
 
 
@@ -172,8 +226,6 @@ void write_matrix_to_csv(float* matrix, int rows, int cols, const char* filename
         return;
     }
 
-    // Write rows and columns
-    fprintf(file, "%d,%d\n", rows, cols);
 
     // Write the matrix values
     for (int i = 0; i < rows; i++) {
@@ -206,7 +258,7 @@ void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
             }
         }
     }
-    printf("Number of elements that differ by relative error more than %f: %d\n", err, cnt);
+    printf("Number of elements that differ by relative error more than %f: %d out of %ld\n", err, cnt, (long int)rows*cols);
 }
 
 
@@ -231,9 +283,9 @@ int main()
 
     int m,k,n;
     float *A,*B,*C,*actual_result;
-    A = read_matrix_from_csv("cuda-101/src/matmul/input_A.csv", &m, &k);
-    B = read_matrix_from_csv("cuda-101/src/matmul/input_B.csv", &k, &n);
-    actual_result = read_matrix_from_csv("cuda-101/src/matmul/output.csv", &m, &n);
+    A = read_matrix_from_csv("./src/matmul/input_A.csv", &m, &k, ',');
+    B = read_matrix_from_csv("./src/matmul/input_B.csv", &k, &n, ',');
+    actual_result = read_matrix_from_csv("./src/matmul/output.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
 
     // init_matrix(A, m, k);
