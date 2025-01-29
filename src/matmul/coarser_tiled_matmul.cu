@@ -26,10 +26,11 @@
 // Coarser matrix multiplication
 __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, int k, int n)
 {
-    int col1 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4;
-    int col2 = col1+1;
-    int col3 = col1+2;
-    int col4 = col1+3;
+    int cols[4] = {0};
+    cols[0] = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4;
+    cols[1] = cols[0]+1;
+    cols[2] = cols[1]+1;
+    cols[3] = cols[2]+1;
     int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
     int tx = threadIdx.x, ty = threadIdx.y;
 
@@ -43,18 +44,43 @@ __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, 
         if(row < m && i*TILE_WIDTH+tx < k)
             Ads[ty][tx] = A[row*k + i*TILE_WIDTH + tx];
         else Ads[ty][tx] = 0.0f;
-        if(col1 < n && i*TILE_WIDTH + ty < k)
-            Bds[ty][tx] = B[col1 + n*(i*TILE_WIDTH + ty)];
-        else Bds[ty][tx] = 0.0f;
-        if(col2 < n && i*TILE_WIDTH + ty < k)
-            Bds[ty][tx+TILE_WIDTH] = B[col2 + n*(i*TILE_WIDTH + ty)];
-        else Bds[ty][tx+TILE_WIDTH] = 0.0f;
-        if(col3 < n && i*TILE_WIDTH + ty < k)
-            Bds[ty][tx+2*TILE_WIDTH] = B[col3 + n*(i*TILE_WIDTH + ty)];
-        else Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
-        if(col4 < n && i*TILE_WIDTH + ty < k)
-            Bds[ty][tx+3*TILE_WIDTH] = B[col4 + n*(i*TILE_WIDTH + ty)];
-        else Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
+
+        // optimising reads into B
+        if(cols[3]<n && i*TILE_WIDTH + ty < k)
+        {
+            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+2*TILE_WIDTH] = B[cols[2] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+3*TILE_WIDTH] = B[cols[3] + n*(i*TILE_WIDTH + ty)];
+        }
+        else if(cols[2]<n && i*TILE_WIDTH + ty < k)
+        {
+            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+2*TILE_WIDTH] = B[cols[2] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
+        }
+        else if(cols[1]<n && i*TILE_WIDTH + ty < k)
+        {
+            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
+            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
+        }
+        else if(cols[0]<n && i*TILE_WIDTH + ty < k)
+        {
+            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
+            Bds[ty][tx+TILE_WIDTH] = 0.0f;
+            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
+            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
+        }
+        else
+        {
+            Bds[ty][tx] = 0.0f;
+            Bds[ty][tx+TILE_WIDTH] = 0.0f;
+            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
+            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
+        }
         __syncthreads();
         
         
@@ -67,27 +93,27 @@ __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, 
         }
         __syncthreads();
     }
-    if(row<m && col4<n)
+    if(row<m && cols[3]<n)
     {
-        C[row*n+col1] = val[0];
-        C[row*n+col2] = val[1];
-        C[row*n+col3] = val[2];
-        C[row*n+col4] = val[3];
+        C[row*n+cols[0]] = val[0];
+        C[row*n+cols[1]] = val[1];
+        C[row*n+cols[2]] = val[2];
+        C[row*n+cols[3]] = val[3];
     }
-    else if(row<m && col3<n)
+    else if(row<m && cols[2]<n)
     {
-        C[row*n+col1] = val[0];
-        C[row*n+col2] = val[1];
-        C[row*n+col3] = val[2];
+        C[row*n+cols[0]] = val[0];
+        C[row*n+cols[1]] = val[1];
+        C[row*n+cols[2]] = val[2];
     }
-    else if(row<m && col2<n)
+    else if(row<m && cols[1]<n)
     {
-        C[row*n+col1] = val[0];
-        C[row*n+col2] = val[1];
+        C[row*n+cols[0]] = val[0];
+        C[row*n+cols[1]] = val[1];
     }
-    else if(row<m && col1<n)
+    else if(row<m && cols[0]<n)
     {
-        C[row*n+col1] = val[0];
+        C[row*n+cols[0]] = val[0];
     }
 }
 
