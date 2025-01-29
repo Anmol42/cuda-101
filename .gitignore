@@ -79,6 +79,7 @@ Thumbs.db
 # Specific files to be excluded
 1
 2
+3
 cuda_property
 dump.txt
 a.out
