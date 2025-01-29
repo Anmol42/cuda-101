@@ -292,7 +292,7 @@ int main()
     // init_matrix(B, k, n);
 
     matMul(A, B, C, m, k, n);
-    matMulAccuracy(C, actual_result, m, n); // transfer this output to a temporray file for better analysis
+    matMulAccuracy(C, actual_result, m, n); // transfer this output to a temporary file for better analysis
 
     return  EXIT_SUCCESS;
 }

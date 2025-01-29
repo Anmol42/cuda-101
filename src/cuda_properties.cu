@@ -14,7 +14,7 @@ bool checkSharedMemoryLimits(int tileWidth) {
     }
 
     // Calculate required shared memory for one block
-    size_t requiredSharedMemPerBlock = 2 * tileWidth * tileWidth * sizeof(float);
+    size_t requiredSharedMemPerBlock = 5 * tileWidth * tileWidth * sizeof(float);
     
     printf("Device: %s\n", deviceProp.name);
     printf("Shared memory per block: %zu bytes\n", deviceProp.sharedMemPerBlock);
