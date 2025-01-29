@@ -34,16 +34,15 @@ __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, 
     int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
     int tx = threadIdx.x, ty = threadIdx.y;
 
-    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds[TILE_WIDTH][4*TILE_WIDTH];
+    __shared__ float Bds[TILE_WIDTH][5*TILE_WIDTH];
     double val[4] = {0};
 
 
     for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
     {
         if(row < m && i*TILE_WIDTH+tx < k)
-            Ads[ty][tx] = A[row*k + i*TILE_WIDTH + tx];
-        else Ads[ty][tx] = 0.0f;
+            Bds[ty][tx+4*TILE_WIDTH] = A[row*k + i*TILE_WIDTH + tx];
+        else Bds[ty][tx+4*TILE_WIDTH] = 0.0f;
 
         // optimising reads into B
         if(cols[3]<n && i*TILE_WIDTH + ty < k)
@@ -86,10 +85,10 @@ __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, 
         
         for(int j=0; j<TILE_WIDTH;j++)
         {
-            val[0] += Ads[ty][j]*Bds[j][tx];
-            val[1] += Ads[ty][j]*Bds[j][tx+TILE_WIDTH];
-            val[2] += Ads[ty][j]*Bds[j][tx+2*TILE_WIDTH];
-            val[3] += Ads[ty][j]*Bds[j][tx+3*TILE_WIDTH];
+            val[0] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx];
+            val[1] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+TILE_WIDTH];
+            val[2] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+2*TILE_WIDTH];
+            val[3] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+3*TILE_WIDTH];
         }
         __syncthreads();
     }
