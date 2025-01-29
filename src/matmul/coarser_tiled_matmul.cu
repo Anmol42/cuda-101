@@ -281,10 +281,10 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
 
     printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
 
-    // double bytes_transferred_real = (2*M*N*K/(float)(TILE_WIDTH) + M*N)*sizeof(float);
-    // double achieved_bw = (bytes_transferred_real / (milliseconds / 1000.0f)) / 1e9;
+    double bytes_transferred_real = (5*M*N*K/(float)(4*TILE_WIDTH) + M*N)*sizeof(float);
+    double achieved_bw = (bytes_transferred_real / (milliseconds / 1000.0f)) / 1e9;
 
-    // printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred_real);
+    printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred_real);
 
     cudaMemcpy(C, d_C, size_C, D2H);
 
@@ -296,6 +296,7 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
 int main()
 {
     srand(time(NULL));
+    cudaFuncSetCacheConfig(coarse_tiled_matmul_kernel, cudaFuncCachePreferNone);
     int device;
     cudaDeviceProp prop;
     cudaGetDevice(&device);
