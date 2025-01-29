@@ -5,6 +5,7 @@ Welcome to the CUDA 101 repository! This project is dedicated to documenting my 
 ## Repository Structure
 
 - **src/**: Contains the source code for various CUDA programs and exercises. 
+- **src/README.md**: Contains the metrics available through `nvprof` for the GPU in my system. It can differ from GPU to GPU. Use the command `nvprof --query-metrics` to look at the supported metrics on yous system.
 
 ## Getting Started
 
