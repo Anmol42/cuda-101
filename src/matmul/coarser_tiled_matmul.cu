@@ -27,18 +27,15 @@
 __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, int k, int n)
 {
     int col1 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4;
-    int col2 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+1;
-    int col3 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+2;
-    int col4 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+3;
+    int col2 = col1+1;
+    int col3 = col1+2;
+    int col4 = col1+3;
     int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
     int tx = threadIdx.x, ty = threadIdx.y;
 
     __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds1[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds2[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds3[TILE_WIDTH][TILE_WIDTH];
-    __shared__ float Bds4[TILE_WIDTH][TILE_WIDTH];
-    double val1=0,val2=0,val3=0,val4=0;
+    __shared__ float Bds[TILE_WIDTH][4*TILE_WIDTH];
+    double val[4] = {0};
 
 
     for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
@@ -47,50 +44,50 @@ __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, 
             Ads[ty][tx] = A[row*k + i*TILE_WIDTH + tx];
         else Ads[ty][tx] = 0.0f;
         if(col1 < n && i*TILE_WIDTH + ty < k)
-            Bds1[ty][tx] = B[col1 + n*(i*TILE_WIDTH + ty)];
-        else Bds1[ty][tx] = 0.0f;
+            Bds[ty][tx] = B[col1 + n*(i*TILE_WIDTH + ty)];
+        else Bds[ty][tx] = 0.0f;
         if(col2 < n && i*TILE_WIDTH + ty < k)
-            Bds2[ty][tx] = B[col2 + n*(i*TILE_WIDTH + ty)];
-        else Bds2[ty][tx] = 0.0f;
+            Bds[ty][tx+TILE_WIDTH] = B[col2 + n*(i*TILE_WIDTH + ty)];
+        else Bds[ty][tx+TILE_WIDTH] = 0.0f;
         if(col3 < n && i*TILE_WIDTH + ty < k)
-            Bds3[ty][tx] = B[col3 + n*(i*TILE_WIDTH + ty)];
-        else Bds3[ty][tx] = 0.0f;
+            Bds[ty][tx+2*TILE_WIDTH] = B[col3 + n*(i*TILE_WIDTH + ty)];
+        else Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
         if(col4 < n && i*TILE_WIDTH + ty < k)
-            Bds4[ty][tx] = B[col4 + n*(i*TILE_WIDTH + ty)];
-        else Bds4[ty][tx] = 0.0f;
+            Bds[ty][tx+3*TILE_WIDTH] = B[col4 + n*(i*TILE_WIDTH + ty)];
+        else Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
         __syncthreads();
         
         
         for(int j=0; j<TILE_WIDTH;j++)
         {
-            val1 += Ads[ty][j]*Bds1[j][tx];
-            val2 += Ads[ty][j]*Bds2[j][tx];
-            val3 += Ads[ty][j]*Bds3[j][tx];
-            val4 += Ads[ty][j]*Bds4[j][tx];
+            val[0] += Ads[ty][j]*Bds[j][tx];
+            val[1] += Ads[ty][j]*Bds[j][tx+TILE_WIDTH];
+            val[2] += Ads[ty][j]*Bds[j][tx+2*TILE_WIDTH];
+            val[3] += Ads[ty][j]*Bds[j][tx+3*TILE_WIDTH];
         }
         __syncthreads();
     }
     if(row<m && col4<n)
     {
-        C[row*n+col1] = val1;
-        C[row*n+col2] = val2;
-        C[row*n+col3] = val3;
-        C[row*n+col4] = val4;
+        C[row*n+col1] = val[0];
+        C[row*n+col2] = val[1];
+        C[row*n+col3] = val[2];
+        C[row*n+col4] = val[3];
     }
     else if(row<m && col3<n)
     {
-        C[row*n+col1] = val1;
-        C[row*n+col2] = val2;
-        C[row*n+col3] = val3;
+        C[row*n+col1] = val[0];
+        C[row*n+col2] = val[1];
+        C[row*n+col3] = val[2];
     }
     else if(row<m && col2<n)
     {
-        C[row*n+col1] = val1;
-        C[row*n+col2] = val2;
+        C[row*n+col1] = val[0];
+        C[row*n+col2] = val[1];
     }
     else if(row<m && col1<n)
     {
-        C[row*n+col1] = val1;
+        C[row*n+col1] = val[0];
     }
 }
 
