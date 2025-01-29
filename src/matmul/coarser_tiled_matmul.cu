@@ -26,8 +26,72 @@
 // Coarser matrix multiplication
 __global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, int k, int n)
 {
-    int col = blockDim.x*TILE_WIDTH + threadIdx.x;
-    int row = blockDim.y*TILE_WIDTH + threadIdx.y;
+    int col1 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4;
+    int col2 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+1;
+    int col3 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+2;
+    int col4 = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4+3;
+    int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
+    int tx = threadIdx.x, ty = threadIdx.y;
+
+    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds1[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds2[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds3[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds4[TILE_WIDTH][TILE_WIDTH];
+    double val1=0,val2=0,val3=0,val4=0;
+
+
+    for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
+    {
+        if(row < m && i*TILE_WIDTH+tx < k)
+            Ads[ty][tx] = A[row*k + i*TILE_WIDTH + tx];
+        else Ads[ty][tx] = 0.0f;
+        if(col1 < n && i*TILE_WIDTH + ty < k)
+            Bds1[ty][tx] = B[col1 + n*(i*TILE_WIDTH + ty)];
+        else Bds1[ty][tx] = 0.0f;
+        if(col2 < n && i*TILE_WIDTH + ty < k)
+            Bds2[ty][tx] = B[col2 + n*(i*TILE_WIDTH + ty)];
+        else Bds2[ty][tx] = 0.0f;
+        if(col3 < n && i*TILE_WIDTH + ty < k)
+            Bds3[ty][tx] = B[col3 + n*(i*TILE_WIDTH + ty)];
+        else Bds3[ty][tx] = 0.0f;
+        if(col4 < n && i*TILE_WIDTH + ty < k)
+            Bds4[ty][tx] = B[col4 + n*(i*TILE_WIDTH + ty)];
+        else Bds4[ty][tx] = 0.0f;
+        __syncthreads();
+        
+        
+        for(int j=0; j<TILE_WIDTH;j++)
+        {
+            val1 += Ads[ty][j]*Bds1[j][tx];
+            val2 += Ads[ty][j]*Bds2[j][tx];
+            val3 += Ads[ty][j]*Bds3[j][tx];
+            val4 += Ads[ty][j]*Bds4[j][tx];
+        }
+        __syncthreads();
+    }
+    if(row<m && col4<n)
+    {
+        C[row*n+col1] = val1;
+        C[row*n+col2] = val2;
+        C[row*n+col3] = val3;
+        C[row*n+col4] = val4;
+    }
+    else if(row<m && col3<n)
+    {
+        C[row*n+col1] = val1;
+        C[row*n+col2] = val2;
+        C[row*n+col3] = val3;
+    }
+    else if(row<m && col2<n)
+    {
+        C[row*n+col1] = val1;
+        C[row*n+col2] = val2;
+    }
+    else if(row<m && col1<n)
+    {
+        C[row*n+col1] = val1;
+    }
 }
 
 
@@ -132,6 +196,10 @@ void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
                 cnt++;
                 // printf("Error at index (%d, %d): %f != %f\n", i, j, result[i*cols+j], expected_result[i*cols+j]);
             }
+            // else
+            // {
+            //     printf("Expected value matched at index (%d, %d): %f = %f\n", i, j, result[i*cols+j], expected_result[i*cols+j]);
+            // }
         }
     }
     printf("Number of elements that differ by relative error more than %f: %d out of %ld\n", err, cnt, (long int)rows*cols);
@@ -169,6 +237,38 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
     cudaEventElapsedTime(&milliseconds, start, stop);
     printf("Time taken for copying host data on GPU: %f ms\n", milliseconds);
 
+    dim3 dimGrid((n+4*TILE_WIDTH-1)/(4*TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH, 1);
+    dim3 dimBlock(TILE_WIDTH,TILE_WIDTH,1);
+    printf("Grid size: %dx%d\n", (n+4*TILE_WIDTH-1)/(4*TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH);
+
+
+    cudaDeviceSynchronize();
+    cudaEventRecord(start);
+   
+    coarse_tiled_matmul_kernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+    
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    printf("Tiled MatMul kernel execution time: %f ms\n", milliseconds);
+    double M = m, N = n, K = k;
+    float total_operations = 2*M*N*K;
+    float flops = total_operations / (milliseconds / 1000.0f);  // Total FLOPS
+    float gflops = flops / 1e9;  // Convert to GFLOPS
+
+    printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
+
+    // double bytes_transferred_real = (2*M*N*K/(float)(TILE_WIDTH) + M*N)*sizeof(float);
+    // double achieved_bw = (bytes_transferred_real / (milliseconds / 1000.0f)) / 1e9;
+
+    // printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred_real);
+
+    cudaMemcpy(C, d_C, size_C, D2H);
+
+    cudaFree(d_A);
+    cudaFree(d_B);
+    cudaFree(d_C);
 
 }
 int main()
@@ -192,10 +292,14 @@ int main()
 
     int m,k,n;
     float *A,*B,*C,*actual_result;
-    A = read_matrix_from_csv("./src/matmul/input_A.csv", &m, &k, ',');
-    B = read_matrix_from_csv("./src/matmul/input_B.csv", &k, &n, ',');
-    actual_result = read_matrix_from_csv("./src/matmul/output.csv", &m, &n);
+    A = read_matrix_from_csv("./src/matmul/input_A_int.csv", &m, &k, ',');
+    B = read_matrix_from_csv("./src/matmul/input_B_int.csv", &k, &n, ',');
+    actual_result = read_matrix_from_csv("./src/matmul/output_int.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
+
+    printf("Matrix dimensions: A(%dx%d) B(%dx%d) C(%dx%d)\n",m,k,k,n,m,n);
+    coarse_tiled_matmul(A,B,C,m,k,n);
+    matMulAccuracy(C, actual_result, m, n);
 
     return EXIT_SUCCESS;
 }
