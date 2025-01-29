@@ -89,7 +89,7 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     printf("Time taken for copying host data on GPU: %f ms\n", milliseconds);
 
     // call kernel, if direct integer division is used, it will be 0 and hence ceil will return 0 as truncation occured first.
-    dim3 dimGrid(ceil(n/(float)(TILE_WIDTH)), ceil(m/(float)(TILE_WIDTH)), 1);
+    dim3 dimGrid((n+TILE_WIDTH-1)/TILE_WIDTH, (m+TILE_WIDTH-1)/TILE_WIDTH, 1);
     dim3 dimBlock(TILE_WIDTH,TILE_WIDTH,1);
 
     cudaDeviceSynchronize();
@@ -109,10 +109,10 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
 
     printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
 
-    double bytes_transferred = (2*M*N*K/(float)(TILE_WIDTH) + M*N)*sizeof(float);
-    double achieved_bw = (bytes_transferred / (milliseconds / 1000.0f)) / 1e9;
+    double bytes_transferred_real = (2*M*N*K/(float)(TILE_WIDTH) + M*N)*sizeof(float);
+    double achieved_bw = (bytes_transferred_real / (milliseconds / 1000.0f)) / 1e9;
 
-    printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred);
+    printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred_real);
 
     cudaMemcpy(h_C, d_C, size_C, DeviceToHost);
 
