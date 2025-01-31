@@ -15,7 +15,7 @@
 //Tiled matrix multiplication
 __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int k, int n)
 {
-    const int TILE_WIDTH = 16;
+    const int TILE_WIDTH = 32;
     // TILE_WIDTH must be known at compile time for this to work
     __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
     __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
@@ -27,7 +27,7 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
     int row = threadIdx.y + blockDim.y*blockIdx.y;
     int col = threadIdx.x + blockDim.x*blockIdx.x;
 
-    double value = 0;
+    float value = 0;
 
     //load tile into shared memory
     for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
@@ -44,7 +44,7 @@ __global__ void tiledMatMulKernel(float* A, float* B, float* result, int m, int 
 
         for(int j=0;j<TILE_WIDTH;j++)
         {
-            value += static_cast<double>(Ads[ty][j]) * static_cast<double>(Bds[j][tx]); //__fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
+            value += Ads[ty][j]*Bds[j][tx]; //__fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
         }
         __syncthreads();
     }
@@ -62,7 +62,7 @@ void matMul(float* h_A, float* h_B, float* h_C, int m, int k, int n)
     float milliseconds;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    const int TILE_WIDTH = 16;
+    const int TILE_WIDTH = 32;
     // A is m x k, B is k x n, C is m x n
     int size_A = m*k*sizeof(float);
     int size_B = k*n*sizeof(float);
@@ -283,9 +283,9 @@ int main()
 
     int m,k,n;
     float *A,*B,*C,*actual_result;
-    A = read_matrix_from_csv("./src/matmul/input_A_int.csv", &m, &k, ',');
-    B = read_matrix_from_csv("./src/matmul/input_B_int.csv", &k, &n, ',');
-    actual_result = read_matrix_from_csv("./src/matmul/output_int.csv", &m, &n);
+    A = read_matrix_from_csv("./src/matmul/input_A.csv", &m, &k, ',');
+    B = read_matrix_from_csv("./src/matmul/input_B.csv", &k, &n, ',');
+    actual_result = read_matrix_from_csv("./src/matmul/output.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
 
     // init_matrix(A, m, k);

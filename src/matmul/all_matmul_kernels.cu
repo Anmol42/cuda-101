@@ -146,8 +146,8 @@ void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
 
 __global__ void sgemm_naive(float* A, float* B, float* C, int m, int k, int n)
 {
-    const uint row = threadIdx.y + blockIdx.y*blockDim.y;
-    const uint col = threadIdx.x + blockDim.x*blockIdx.x;
+    const uint row = threadIdx.x + blockIdx.x*blockDim.x;
+    const uint col = threadIdx.y + blockDim.y*blockIdx.y;
 
     if(row < m && col < n)
     {
@@ -164,7 +164,60 @@ __global__ void sgemm_naive(float* A, float* B, float* C, int m, int k, int n)
 
 __global__ void sgemm_coalesced(float* A, float* B, float* C, int m, int k, int n)
 {
+    const uint row = threadIdx.y + blockIdx.y*blockDim.y;
+    const uint col = threadIdx.x + blockDim.x*blockIdx.x;
 
+    if(row < m && col < n)
+    {
+        int offset = col + row*n;
+        float sum = 0;
+        for(int i=0;i<k;i++)
+        {
+            sum += A[i + k*row]*B[col + i*n];
+        }
+        C[offset] = sum;
+    }
+}
+
+
+__global__ void sgemm_smem(float* A, float* B, float* C, int m, int k, int n)
+{
+    // TILE_WIDTH must be known at compile time for this to work
+    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
+
+    // int bx = blockIdx.x; int by = blockIdx.y;
+    int tx = threadIdx.x; int ty = threadIdx.y;
+
+    //global row and column is given here
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    float value = 0;        // This is a overflow prone accumulation, CUDA restricts performance of double accumulator so this is performance oriented choice
+
+    //load tile into shared memory
+    for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
+    {
+        if(row < m && (TILE_WIDTH*i+tx) < k)
+            Ads[ty][tx] = A[row*k+TILE_WIDTH*i+tx];
+        else
+            Ads[ty][tx] = 0.0f;
+        if(col < n && (TILE_WIDTH*i+ty) < k)
+            Bds[ty][tx] = B[col+n*(TILE_WIDTH*i+ty)];
+        else
+            Bds[ty][tx] = 0.0f;
+        __syncthreads();
+
+        for(int j=0;j<TILE_WIDTH;j++)
+        {
+            value += Ads[ty][j]*Bds[j][tx]; //__fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
+        }
+        __syncthreads();
+    }
+    if(row<m && col<n)
+    {
+        C[row*n+col] = value;
+    }
 }
 
 
@@ -207,7 +260,7 @@ void matmul(float* A, float* B, float* C, int m, int k, int n)
     cudaDeviceSynchronize();
     cudaEventRecord(start);
    
-    sgemm_naive<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);       // replace_kernels here
+    sgemm_coalesced<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);       // replace_kernels here
     
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
