@@ -13,111 +13,6 @@
 #define TILE_WIDTH 32
 
 
-/*
- *
- * This code implements a matrix multiplication using a coarser threading approach in CUDA.
- * By giving up a bit of parallelism from the tiled matrix multiplication, it aims to reduce 
- * redundant read accesses. This approach can help in optimizing memory access patterns and 
- * potentially improve performance by minimizing the number of redundant reads from global memory.
- *
- */
-
-
-// Coarser matrix multiplication
-__global__ void coarse_tiled_matmul_kernel(float* A, float* B, float* C, int m, int k, int n)
-{
-    int cols[4] = {0};
-    cols[0] = blockIdx.x*4*TILE_WIDTH + threadIdx.x*4;
-    cols[1] = cols[0]+1;
-    cols[2] = cols[1]+1;
-    cols[3] = cols[2]+1;
-    int row = blockIdx.y*TILE_WIDTH + threadIdx.y;
-    int tx = threadIdx.x, ty = threadIdx.y;
-
-    __shared__ float Bds[TILE_WIDTH][5*TILE_WIDTH];
-    float val[4] = {0};
-
-
-    for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
-    {
-        if(row < m && i*TILE_WIDTH+tx < k)
-            Bds[ty][tx+4*TILE_WIDTH] = A[row*k + i*TILE_WIDTH + tx];
-        else Bds[ty][tx+4*TILE_WIDTH] = 0.0f;
-
-        // optimising reads into B
-        if(cols[3]<n && i*TILE_WIDTH + ty < k)
-        {
-            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+2*TILE_WIDTH] = B[cols[2] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+3*TILE_WIDTH] = B[cols[3] + n*(i*TILE_WIDTH + ty)];
-        }
-        else if(cols[2]<n && i*TILE_WIDTH + ty < k)
-        {
-            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+2*TILE_WIDTH] = B[cols[2] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
-        }
-        else if(cols[1]<n && i*TILE_WIDTH + ty < k)
-        {
-            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+TILE_WIDTH] = B[cols[1] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
-            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
-        }
-        else if(cols[0]<n && i*TILE_WIDTH + ty < k)
-        {
-            Bds[ty][tx] = B[cols[0] + n*(i*TILE_WIDTH + ty)];
-            Bds[ty][tx+TILE_WIDTH] = 0.0f;
-            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
-            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
-        }
-        else
-        {
-            Bds[ty][tx] = 0.0f;
-            Bds[ty][tx+TILE_WIDTH] = 0.0f;
-            Bds[ty][tx+2*TILE_WIDTH] = 0.0f;
-            Bds[ty][tx+3*TILE_WIDTH] = 0.0f;
-        }
-        __syncthreads();
-        
-        
-        for(int j=0; j<TILE_WIDTH;j++)
-        {
-            val[0] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx];
-            val[1] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+TILE_WIDTH];
-            val[2] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+2*TILE_WIDTH];
-            val[3] += Bds[ty][j+4*TILE_WIDTH]*Bds[j][tx+3*TILE_WIDTH];
-        }
-        __syncthreads();
-    }
-    if(row<m && cols[3]<n)
-    {
-        C[row*n+cols[0]] = val[0];
-        C[row*n+cols[1]] = val[1];
-        C[row*n+cols[2]] = val[2];
-        C[row*n+cols[3]] = val[3];
-    }
-    else if(row<m && cols[2]<n)
-    {
-        C[row*n+cols[0]] = val[0];
-        C[row*n+cols[1]] = val[1];
-        C[row*n+cols[2]] = val[2];
-    }
-    else if(row<m && cols[1]<n)
-    {
-        C[row*n+cols[0]] = val[0];
-        C[row*n+cols[1]] = val[1];
-    }
-    else if(row<m && cols[0]<n)
-    {
-        C[row*n+cols[0]] = val[0];
-    }
-}
-
-
-
 float* read_matrix_from_csv(const char* filename, int *rows, int *cols, char delimiter=',')
 {
     FILE* file = fopen(filename, "r");
@@ -205,6 +100,31 @@ float* read_matrix_from_csv(const char* filename, int *rows, int *cols, char del
 }
 
 
+void write_matrix_to_csv(float* matrix, int rows, int cols, const char* filename)
+{
+    FILE* file = fopen(filename, "w");
+    if (file == NULL) {
+        perror("Error opening file for writing");
+        return;
+    }
+
+
+    // Write the matrix values
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            fprintf(file, "%lf", matrix[i*cols+j]);
+            if (j < cols - 1) {
+                fprintf(file, ","); // Add comma between values in a row
+            }
+        }
+        fprintf(file, "\n"); // Newline after each row
+    }
+
+    fclose(file);
+    printf("Matrix written to %s successfully.\n", filename);
+}
+
+
 void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
 {
     int cnt = 0;
@@ -218,17 +138,90 @@ void matMulAccuracy(float *result, float* expected_result, int rows, int cols)
                 cnt++;
                 // printf("Error at index (%d, %d): %f != %f\n", i, j, result[i*cols+j], expected_result[i*cols+j]);
             }
-            // else
-            // {
-            //     printf("Expected value matched at index (%d, %d): %f = %f\n", i, j, result[i*cols+j], expected_result[i*cols+j]);
-            // }
         }
     }
     printf("Number of elements that differ by relative error more than %f: %d out of %ld\n", err, cnt, (long int)rows*cols);
 }
 
 
-void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
+__global__ void sgemm_naive(float* A, float* B, float* C, int m, int k, int n)
+{
+    const uint row = threadIdx.x + blockIdx.x*blockDim.x;
+    const uint col = threadIdx.y + blockDim.y*blockIdx.y;
+
+    if(row < m && col < n)
+    {
+        int offset = col + row*n;
+        float sum = 0;
+        for(int i=0;i<k;i++)
+        {
+            sum += A[i + k*row]*B[col + i*n];
+        }
+        C[offset] = sum;
+    }
+}
+
+
+__global__ void sgemm_coalesced(float* A, float* B, float* C, int m, int k, int n)
+{
+    const uint row = threadIdx.y + blockIdx.y*blockDim.y;
+    const uint col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    if(row < m && col < n)
+    {
+        int offset = col + row*n;
+        float sum = 0;
+        for(int i=0;i<k;i++)
+        {
+            sum += A[i + k*row]*B[col + i*n];
+        }
+        C[offset] = sum;
+    }
+}
+
+
+__global__ void sgemm_smem(float* A, float* B, float* C, int m, int k, int n)
+{
+    // TILE_WIDTH must be known at compile time for this to work
+    __shared__ float Ads[TILE_WIDTH][TILE_WIDTH];
+    __shared__ float Bds[TILE_WIDTH][TILE_WIDTH];
+
+    // int bx = blockIdx.x; int by = blockIdx.y;
+    int tx = threadIdx.x; int ty = threadIdx.y;
+
+    //global row and column is given here
+    int row = threadIdx.y + blockDim.y*blockIdx.y;
+    int col = threadIdx.x + blockDim.x*blockIdx.x;
+
+    float value = 0;        // This is a overflow prone accumulation, CUDA restricts performance of double accumulator so this is performance oriented choice
+
+    //load tile into shared memory
+    for(int i=0;i<(k+TILE_WIDTH-1)/TILE_WIDTH;i++)
+    {
+        if(row < m && (TILE_WIDTH*i+tx) < k)
+            Ads[ty][tx] = A[row*k+TILE_WIDTH*i+tx];
+        else
+            Ads[ty][tx] = 0.0f;
+        if(col < n && (TILE_WIDTH*i+ty) < k)
+            Bds[ty][tx] = B[col+n*(TILE_WIDTH*i+ty)];
+        else
+            Bds[ty][tx] = 0.0f;
+        __syncthreads();
+
+        for(int j=0;j<TILE_WIDTH;j++)
+        {
+            value += Ads[ty][j]*Bds[j][tx]; //__fmaf_rn(Ads[ty][j],Bds[j][tx], 0.0f);
+        }
+        __syncthreads();
+    }
+    if(row<m && col<n)
+    {
+        C[row*n+col] = value;
+    }
+}
+
+
+void matmul(float* A, float* B, float* C, int m, int k, int n)
 {
     cudaEvent_t start, stop;
     float milliseconds;
@@ -259,21 +252,21 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
     cudaEventElapsedTime(&milliseconds, start, stop);
     printf("Time taken for copying host data on GPU: %f ms\n", milliseconds);
 
-    dim3 dimGrid((n+4*TILE_WIDTH-1)/(4*TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH, 1);
+    dim3 dimGrid((n+TILE_WIDTH-1)/(TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH, 1);
     dim3 dimBlock(TILE_WIDTH,TILE_WIDTH,1);
-    printf("Grid size: %dx%d\n", (n+4*TILE_WIDTH-1)/(4*TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH);
+    printf("Grid size: %dx%d\n", (n+TILE_WIDTH-1)/(TILE_WIDTH), (m+TILE_WIDTH-1)/TILE_WIDTH);
 
 
     cudaDeviceSynchronize();
     cudaEventRecord(start);
    
-    coarse_tiled_matmul_kernel<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);
+    sgemm_coalesced<<<dimGrid, dimBlock>>>(d_A, d_B, d_C, m, k, n);       // replace_kernels here
     
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     
     cudaEventElapsedTime(&milliseconds, start, stop);
-    printf("Tiled MatMul kernel execution time: %f ms\n", milliseconds);
+    printf("Kernel execution time: %f ms\n", milliseconds);
     double M = m, N = n, K = k;
     float total_operations = 2*M*N*K;
     float flops = total_operations / (milliseconds / 1000.0f);  // Total FLOPS
@@ -281,10 +274,10 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
 
     printf("Achieved GFLOPS: %f GFLOPS\n", gflops);
 
-    double bytes_transferred_real = (5*M*N*K/(float)(4*TILE_WIDTH) + M*N)*sizeof(float);
+    double bytes_transferred_real = (2*M*N*K + M*N)*sizeof(float);
     double achieved_bw = (bytes_transferred_real / (milliseconds / 1000.0f)) / 1e9;
 
-    printf("Achieved Memory Bandwidth: %.2f GB/s, %f\n", achieved_bw, bytes_transferred_real);
+    printf("Achieved Memory Bandwidth: %.2f GB/s\n", achieved_bw);
 
     cudaMemcpy(C, d_C, size_C, D2H);
 
@@ -293,10 +286,11 @@ void coarse_tiled_matmul(float* A, float* B, float* C, int m, int k, int n)
     cudaFree(d_C);
 
 }
+
+
 int main()
 {
     srand(time(NULL));
-    cudaFuncSetCacheConfig(coarse_tiled_matmul_kernel, cudaFuncCachePreferNone);
     int device;
     cudaDeviceProp prop;
     cudaGetDevice(&device);
@@ -320,9 +314,11 @@ int main()
     actual_result = read_matrix_from_csv("./src/matmul/output.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
 
-    printf("Matrix dimensions: A(%dx%d) B(%dx%d) C(%dx%d)\n",m,k,k,n,m,n);
-    coarse_tiled_matmul(A,B,C,m,k,n);
-    matMulAccuracy(C, actual_result, m, n);
+    // init_matrix(A, m, k);
+    // init_matrix(B, k, n);
 
-    return EXIT_SUCCESS;
+    matmul(A, B, C, m, k, n);
+    matMulAccuracy(C, actual_result, m, n); // transfer this output to a temporary file for better analysis
+
+    return  EXIT_SUCCESS;
 }

@@ -263,9 +263,9 @@ int main()
 
     int m,k,n;
     float *A,*B,*C,*actual_result;
-    A = read_matrix_from_csv("./src/matmul/input_A_int.csv", &m, &k, ',');
-    B = read_matrix_from_csv("./src/matmul/input_B_int.csv", &k, &n, ',');
-    actual_result = read_matrix_from_csv("./src/matmul/output_int.csv", &m, &n);
+    A = read_matrix_from_csv("./src/matmul/input_A.csv", &m, &k, ',');
+    B = read_matrix_from_csv("./src/matmul/input_B.csv", &k, &n, ',');
+    actual_result = read_matrix_from_csv("./src/matmul/output.csv", &m, &n);
     C = (float*)malloc(m * n * sizeof(float));
 
     matMul(A, B, C, m, k, n);
